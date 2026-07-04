@@ -1,11 +1,13 @@
 """
 Run and summarize the GELU/UELU computational study.
 
-This script orchestrates the three experiment modules used by the manuscript's
+This script orchestrates the five experiment modules used by the manuscript's
 Computational study section:
 1. MLP-Mixer on CIFAR-100
 2. compact Vision Transformer on CIFAR-100
 3. tiny character-level GPT on Tiny Shakespeare
+4. token-level GPT on TinyStories
+5. token-level GPT on WikiText-2
 
 The default protocol is the exploratory/reproducible protocol described in the
 paper draft: 20 epochs for the vision models and 5000 iterations for GPT. Use
@@ -19,11 +21,14 @@ Outputs are written under ./study_outputs by default:
         mixer/
         vit_cifar100/
         tiny_gpt_text/
+        tiny_gpt_TinyStories/
+        tiny_gpt_WikiText-2/
         aggregate_final_metrics.csv
         tables/
         figures/
 
-The tables directory contains LaTeX tables sources. The figures
+The tables directory contains LaTeX tabular fragments that can replace the
+placeholder tables in main.tex once the final runs are complete. The figures
 directory contains learning curves, beta trajectories, and UELU region
 occupancy charts.
 """
@@ -44,13 +49,19 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parent
-EXPERIMENTS = ("mixer", "vit_cifar100", "tiny_gpt_text")
+EXPERIMENTS = ("mixer", "vit_cifar100", "tiny_gpt_text", "tiny_gpt_TinyStories", "tiny_gpt_WikiText-2")
 EXPERIMENT_ALIASES = {
     "mixer": "mixer",
     "vit": "vit_cifar100",
     "vit_cifar100": "vit_cifar100",
     "gpt": "tiny_gpt_text",
+    "shakespeare": "tiny_gpt_text",
     "tiny_gpt_text": "tiny_gpt_text",
+    "tinystories": "tiny_gpt_TinyStories",
+    "tiny_gpt_TinyStories": "tiny_gpt_TinyStories",
+    "wikitext2": "tiny_gpt_WikiText-2",
+    "wikitext-2": "tiny_gpt_WikiText-2",
+    "tiny_gpt_WikiText-2": "tiny_gpt_WikiText-2",
 }
 
 
@@ -88,6 +99,12 @@ PLOT_STYLES = {
     "uelu3": {"marker": "*"},
 }
 FIGURE_DPI = 600
+REGION_ACTIVATIONS = ("uelu", "tuelu", "uelu3")
+REGION_ACTIVATION_LABELS = {
+    "uelu": "UELU",
+    "tuelu": "TUELU",
+    "uelu3": "UELU3",
+}
 
 
 def curve_style(activation: str) -> Dict[str, object]:
@@ -126,6 +143,24 @@ def build_experiment_configs(output_root: Path, activations: Sequence[str]) -> L
             folder=ROOT / "tiny_gpt_text",
             script="gelu_vs_uelu_tiny_gpt.py",
             output_dir=output_root / "tiny_gpt_text",
+            beta=0.5,
+            activations=activations,
+            metric_kind="language",
+        ),
+        ExperimentConfig(
+            name="tiny_gpt_TinyStories",
+            folder=ROOT / "tiny_gpt_TinyStories",
+            script="gelu_vs_uelu_tinystories_gpt.py",
+            output_dir=output_root / "tiny_gpt_TinyStories",
+            beta=0.5,
+            activations=activations,
+            metric_kind="language",
+        ),
+        ExperimentConfig(
+            name="tiny_gpt_WikiText-2",
+            folder=ROOT / "tiny_gpt_WikiText-2",
+            script="gelu_vs_uelu_wikitext2_gpt.py",
+            output_dir=output_root / "tiny_gpt_WikiText-2",
             beta=0.5,
             activations=activations,
             metric_kind="language",
@@ -243,7 +278,7 @@ def number(value: float | None, digits: int = 4) -> str:
 
 
 def summarize_experiment(config: ExperimentConfig) -> List[Dict[str, object]]:
-    final_rows = read_csv(config.output_dir / "final_metrics.csv")
+    final_rows = [row for row in read_csv(config.output_dir / "final_metrics.csv") if row.get("activation") in config.activations]
     aggregate_rows: List[Dict[str, object]] = []
     for activation in sorted({row["activation"] for row in final_rows}):
         rows = [row for row in final_rows if row["activation"] == activation]
@@ -365,7 +400,7 @@ def latex_table_for_experiment(config: ExperimentConfig, rows: List[Dict[str, ob
 
 
 def plot_classification_curves(config: ExperimentConfig, figure_dir: Path) -> None:
-    rows = read_csv(config.output_dir / "epoch_metrics.csv")
+    rows = [row for row in read_csv(config.output_dir / "epoch_metrics.csv") if row.get("activation") in config.activations]
     if not rows:
         return
     figure_dir.mkdir(parents=True, exist_ok=True)
@@ -411,12 +446,14 @@ def plot_classification_curves(config: ExperimentConfig, figure_dir: Path) -> No
 
 
 def plot_language_curves(config: ExperimentConfig, figure_dir: Path) -> None:
-    rows = read_csv(config.output_dir / "eval_metrics.csv")
+    rows = [row for row in read_csv(config.output_dir / "eval_metrics.csv") if row.get("activation") in config.activations]
     if not rows:
         return
     figure_dir.mkdir(parents=True, exist_ok=True)
 
     plt.figure(figsize=(7.0, 4.2))
+    plotted_values: List[float] = []
+    post_initial_values: List[float] = []
     for activation in sorted({row["activation"] for row in rows}):
         subset = [row for row in rows if row["activation"] == activation]
         by_iter: Dict[int, List[float]] = {}
@@ -424,15 +461,25 @@ def plot_language_curves(config: ExperimentConfig, figure_dir: Path) -> None:
             by_iter.setdefault(int(row["iteration"]), []).append(float(row["val_perplexity"]))
         iterations = sorted(by_iter)
         means = [np.mean(by_iter[iteration]) for iteration in iterations]
+        if len(iterations) > 1:
+            iterations = iterations[1:]
+            means = means[1:]
+        plotted_values.extend(float(value) for value in means)
+        post_initial_values.extend(float(value) for value in means)
         plt.plot(iterations, means, label=activation.upper(), **curve_style(activation))
     plt.xlabel("Iteration")
     plt.ylabel("Validation perplexity (log scale)")
     plt.yscale("log")
-    plt.title("Tiny GPT")
+    if post_initial_values and plotted_values:
+        top = min(max(plotted_values), max(post_initial_values) * 1.25)
+        bottom = min(plotted_values) * 0.9
+        if bottom > 0 and top > bottom:
+            plt.ylim(bottom=bottom, top=top)
+    plt.title(config.name.replace("_", " ").replace("-", "-"))
     plt.grid(alpha=0.25)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(figure_dir / "tiny_gpt_text_perplexity.png", dpi=FIGURE_DPI)
+    plt.savefig(figure_dir / f"{config.name}_perplexity.png", dpi=FIGURE_DPI)
     plt.close()
 
     beta_rows = [row for row in rows if as_float(row.get("trainable_beta")) is not None]
@@ -448,26 +495,28 @@ def plot_language_curves(config: ExperimentConfig, figure_dir: Path) -> None:
             plt.plot(iterations, means, label=activation.upper(), **curve_style(activation))
         plt.xlabel("Iteration")
         plt.ylabel("Learned beta")
-        plt.title("Tiny GPT learned beta")
+        plt.title(f"{config.name.replace('_', ' ')} learned beta")
         plt.grid(alpha=0.25)
         plt.legend()
         plt.tight_layout()
-        plt.savefig(figure_dir / "tiny_gpt_text_learned_beta.png", dpi=FIGURE_DPI)
+        plt.savefig(figure_dir / f"{config.name}_learned_beta.png", dpi=FIGURE_DPI)
         plt.close()
 
 
 def plot_region_occupancy(configs: Sequence[ExperimentConfig], figure_dir: Path) -> None:
     grouped_rows: Dict[str, List[Dict[str, object]]] = {}
     for config in configs:
-        for row in read_csv(config.output_dir / "final_metrics.csv"):
-            closed = as_float(row.get("closed_fraction"))
-            transition = as_float(row.get("transition_fraction"))
-            open_fraction = as_float(row.get("open_fraction"))
+        rows = read_csv(config.output_dir / "final_metrics.csv")
+        for activation in REGION_ACTIVATIONS:
+            activation_rows = [row for row in rows if row.get("activation") == activation]
+            closed, _ = mean_std(as_float(row.get("closed_fraction")) for row in activation_rows)
+            transition, _ = mean_std(as_float(row.get("transition_fraction")) for row in activation_rows)
+            open_fraction, _ = mean_std(as_float(row.get("open_fraction")) for row in activation_rows)
             if closed is None or transition is None or open_fraction is None:
                 continue
             grouped_rows.setdefault(config.name, []).append(
                 {
-                    "label": str(row["activation"]).upper(),
+                    "label": REGION_ACTIVATION_LABELS[activation],
                     "closed": closed,
                     "transition": transition,
                     "open": open_fraction,
@@ -491,7 +540,9 @@ def plot_region_occupancy(configs: Sequence[ExperimentConfig], figure_dir: Path)
     display_names = {
         "mixer": "MLP-Mixer",
         "vit_cifar100": "ViT",
-        "tiny_gpt_text": "Tiny GPT",
+        "tiny_gpt_text": "Tiny Shakespeare GPT",
+        "tiny_gpt_TinyStories": "TinyStories GPT",
+        "tiny_gpt_WikiText-2": "WikiText-2 GPT",
     }
 
     for axis, experiment_name in zip(axes, experiment_names):
@@ -547,8 +598,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--experiments",
         nargs="+",
-        default=["mixer", "vit", "gpt"],
-        help="Subset to run/summarize: mixer, vit, gpt. Full names vit_cifar100 and tiny_gpt_text also work.",
+        default=list(EXPERIMENTS),
+        help="Subset to run/summarize: mixer, vit, gpt, tinystories, wikitext2. Full experiment names also work.",
     )
     parser.add_argument("--seeds", nargs="+", type=int, default=[1, 2, 3])
     parser.add_argument("--activations", nargs="+", default=["relu", "silu", "gelu", "dgelu", "uelu", "uelu3", "tuelu"])

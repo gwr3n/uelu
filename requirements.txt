@@ -7,3 +7,6 @@ joblib
 scikit-learn
 timm
 torchsummary
+datasets
+tiktoken
+tokenizers
