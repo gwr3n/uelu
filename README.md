@@ -1,5 +1,7 @@
 # GELU / UELU Computational Study
 
+R. Rossi, "A Structural Interpretation of GELU and Threshold-Transmission Activations via the First-Order Loss Function," arXiv:2607.03664 [cs.LG]
+
 This folder contains the five experiment modules used by the manuscript's `Computational study` section and a root orchestration script.
 
 The study compares standard `GELU` with `ReLU`, `SiLU`/Swish, fixed-width `UELU`, fixed-width `UELU` at the conventional hard-swish width (`beta=3`), trainable-width `TUELU`, and centered dynamic GELU (`DGELU`). It follows the manuscript's threshold-transmission framing: GELU is treated as the Gaussian signal-transmission term, while UELU/TUELU provide compact uniform-threshold analogues.
