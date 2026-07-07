@@ -56,7 +56,7 @@ python run_computational_study.py --skip-runs --output-root ./study_outputs
 
 ## Paper Protocol
 
-The final paper protocol is aligned with the manuscript's computational-study section:
+The experimental protocol is aligned with the manuscript's computational-study section:
 
 - Mixer / CIFAR-100: 20 epochs, beta initialized at 1.0.
 - ViT / CIFAR-100: 20 epochs, beta initialized at 1.0.
