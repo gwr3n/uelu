@@ -1,6 +1,6 @@
 # GELU / UELU Computational Study
 
-R. Rossi, "A Structural Interpretation of GELU and Threshold-Transmission Activations via the First-Order Loss Function," arXiv:2607.03664 [cs.LG]
+R. Rossi, "A Structural Interpretation of GELU and Threshold-Transmission Activations via the First-Order Loss Function," [arXiv:2607.03664](https://arxiv.org/abs/2607.03664) [cs.LG]
 
 This folder contains the five experiment modules used by the manuscript's `Computational study` section and a root orchestration script.
 
