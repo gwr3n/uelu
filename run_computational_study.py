@@ -277,6 +277,14 @@ def number(value: float | None, digits: int = 4) -> str:
     return f"{value:.{digits}f}"
 
 
+def number_pm(mean: float | None, std: float | None, digits: int = 4) -> str:
+    if mean is None:
+        return "--"
+    if std is None:
+        return number(mean, digits)
+    return f"{mean:.{digits}f} $\\pm$ {std:.{digits}f}"
+
+
 def summarize_experiment(config: ExperimentConfig) -> List[Dict[str, object]]:
     final_rows = [row for row in read_csv(config.output_dir / "final_metrics.csv") if row.get("activation") in config.activations]
     aggregate_rows: List[Dict[str, object]] = []
@@ -360,7 +368,7 @@ def latex_table_for_experiment(config: ExperimentConfig, rows: List[Dict[str, ob
         for row in rows:
             activation = display_activation_name(row["activation"])
             beta = str(row["initial_beta"]) if row["initial_beta"] != "" else "--"
-            learned_beta = number(row.get("trainable_beta_mean"), 3)
+            learned_beta = number_pm(row.get("trainable_beta_mean"), row.get("trainable_beta_std"), 3)
             val_acc = percent(row.get("best_val_accuracy_mean"))
             test_acc = percent(row.get("test_accuracy_mean"))
             test_loss = number(row.get("test_loss_mean"), 4)
@@ -384,7 +392,7 @@ def latex_table_for_experiment(config: ExperimentConfig, rows: List[Dict[str, ob
         for row in rows:
             activation = display_activation_name(row["activation"])
             beta = str(row["initial_beta"]) if row["initial_beta"] != "" else "--"
-            learned_beta = number(row.get("trainable_beta_mean"), 3)
+            learned_beta = number_pm(row.get("trainable_beta_mean"), row.get("trainable_beta_std"), 3)
             val_loss = number(row.get("final_val_loss_mean"), 4)
             perplexity = number(row.get("final_val_perplexity_mean"), 3)
             regions = "/".join(
@@ -429,12 +437,11 @@ def plot_classification_curves(config: ExperimentConfig, figure_dir: Path) -> No
         plt.figure(figsize=(7.0, 4.2))
         for activation in sorted({row["activation"] for row in beta_rows}):
             subset = [row for row in beta_rows if row["activation"] == activation]
-            by_epoch: Dict[int, List[float]] = {}
-            for row in subset:
-                by_epoch.setdefault(int(row["epoch"]), []).append(float(row["trainable_beta"]))
-            epochs = sorted(by_epoch)
-            means = [np.mean(by_epoch[epoch]) for epoch in epochs]
-            plt.plot(epochs, means, label=activation.upper(), **curve_style(activation))
+            for seed in sorted({int(row["seed"]) for row in subset}):
+                seed_rows = sorted((row for row in subset if int(row["seed"]) == seed), key=lambda row: int(row["epoch"]))
+                epochs = [int(row["epoch"]) for row in seed_rows]
+                betas = [float(row["trainable_beta"]) for row in seed_rows]
+                plt.plot(epochs, betas, label=f"{activation.upper()} seed {seed}", **curve_style(activation))
         plt.xlabel("Epoch")
         plt.ylabel("Learned beta")
         plt.title(f"{config.name.replace('_', ' ')} learned beta")
@@ -487,12 +494,11 @@ def plot_language_curves(config: ExperimentConfig, figure_dir: Path) -> None:
         plt.figure(figsize=(7.0, 4.2))
         for activation in sorted({row["activation"] for row in beta_rows}):
             subset = [row for row in beta_rows if row["activation"] == activation]
-            by_iter: Dict[int, List[float]] = {}
-            for row in subset:
-                by_iter.setdefault(int(row["iteration"]), []).append(float(row["trainable_beta"]))
-            iterations = sorted(by_iter)
-            means = [np.mean(by_iter[iteration]) for iteration in iterations]
-            plt.plot(iterations, means, label=activation.upper(), **curve_style(activation))
+            for seed in sorted({int(row["seed"]) for row in subset}):
+                seed_rows = sorted((row for row in subset if int(row["seed"]) == seed), key=lambda row: int(row["iteration"]))
+                iterations = [int(row["iteration"]) for row in seed_rows]
+                betas = [float(row["trainable_beta"]) for row in seed_rows]
+                plt.plot(iterations, betas, label=f"{activation.upper()} seed {seed}", **curve_style(activation))
         plt.xlabel("Iteration")
         plt.ylabel("Learned beta")
         plt.title(f"{config.name.replace('_', ' ')} learned beta")
